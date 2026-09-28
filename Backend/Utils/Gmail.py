@@ -1,41 +1,115 @@
 import asyncio
 import base64
-import mimetypes
-
+from pathlib import Path
 from email.message import EmailMessage
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-SCOPES = ['https://www.googleapis.com/auth/gmail.send']
-def get_gmail_service(token:str):
-    credentials = Credentials.from_authorized_user_info(info=token, scopes=SCOPES)
-    if credentials.expired and credentials.refresh_token:
+
+
+SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+
+def get_gmail_service(
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+):
+    credentials = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri=TOKEN_URI,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES,
+    )
+
+    if not credentials.valid:
         credentials.refresh(Request())
-        with open(token, "w") as token:
-            token.write(credentials.to_json())
 
     return build(
         "gmail",
         "v1",
-        credentials=credentials
+        credentials=credentials,
     )
-def send_email(to:str,subject:str,body:str,resume_path:str,token:str):
-    service = get_gmail_service(token)
+
+
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    resume_path: str,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+):
+    service = get_gmail_service(
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
     message = EmailMessage()
+
     message["To"] = to
     message["Subject"] = subject
+
     message.set_content(body)
-    with open(resume_path,"rb") as f:
+
+    resume_file = Path(resume_path)
+
+    with open(resume_file, "rb") as f:
         resume = f.read()
-    message.add_attachment(resume, maintype="application", subtype="pdf", filename=mimetypes.guess_filename(resume_path))
-    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    response=service.users().messages().send(userId="me", body={"raw": encoded_message}).execute()
+
+    message.add_attachment(
+        resume,
+        maintype="application",
+        subtype="pdf",
+        filename=resume_file.name,
+    )
+
+    encoded_message = base64.urlsafe_b64encode(
+        message.as_bytes()
+    ).decode()
+
+    response = (
+        service.users()
+        .messages()
+        .send(
+            userId="me",
+            body={"raw": encoded_message},
+        )
+        .execute()
+    )
+
     return response
 
-async def send_gmail_service(to:str,subject:str,body:str,resume_path:str,token:str):
+
+async def send_gmail_service(
+    to: str,
+    subject: str,
+    body: str,
+    resume_path: str,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+):
     try:
-        response=await asyncio.to_thread(send_email,to,subject,body,resume_path,token)
+        response = await asyncio.to_thread(
+            send_email,
+            to,
+            subject,
+            body,
+            resume_path,
+            refresh_token,
+            client_id,
+            client_secret,
+        )
+
         return response["id"]
+
     except Exception as e:
-        print("Error In Sending the Service {}")
+        print(f"Error in sending Gmail service: {e}")
+        raise

@@ -1,6 +1,5 @@
 import asyncio
 import base64
-from pathlib import Path
 from email.message import EmailMessage
 
 from google.auth.transport.requests import Request
@@ -33,6 +32,7 @@ def get_gmail_service(
         "gmail",
         "v1",
         credentials=credentials,
+        cache_discovery=False,
     )
 
 
@@ -40,7 +40,6 @@ def send_email(
     to: str,
     subject: str,
     body: str,
-    resume_path: str,
     refresh_token: str,
     client_id: str,
     client_secret: str,
@@ -52,23 +51,9 @@ def send_email(
     )
 
     message = EmailMessage()
-
     message["To"] = to
     message["Subject"] = subject
-
     message.set_content(body)
-
-    resume_file = Path(resume_path)
-
-    with open(resume_file, "rb") as f:
-        resume = f.read()
-
-    message.add_attachment(
-        resume,
-        maintype="application",
-        subtype="pdf",
-        filename=resume_file.name,
-    )
 
     encoded_message = base64.urlsafe_b64encode(
         message.as_bytes()
@@ -91,7 +76,6 @@ async def send_gmail_service(
     to: str,
     subject: str,
     body: str,
-    resume_path: str,
     refresh_token: str,
     client_id: str,
     client_secret: str,
@@ -102,7 +86,6 @@ async def send_gmail_service(
             to,
             subject,
             body,
-            resume_path,
             refresh_token,
             client_id,
             client_secret,

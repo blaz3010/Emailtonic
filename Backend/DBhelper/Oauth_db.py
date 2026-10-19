@@ -14,6 +14,7 @@ from Backend.DBhelper.db import AsyncDB
 # OAUTH ACCOUNTS
 # =========================================================
 
+
 async def save_oauth_account(
     user_id: UUID,
     provider_email: str,
@@ -22,7 +23,7 @@ async def save_oauth_account(
     provider: str = "google",
 ) -> Optional[dict]:
     """
-    Insert a Gmail connection or update an existing one.
+    Insert a Google OAuth account or update an existing one.
 
     If encrypted_refresh_token is None, preserve the existing
     refresh token. A new account requires a refresh token.
@@ -52,7 +53,7 @@ async def save_oauth_account(
                 )
                 DO UPDATE SET
                     refresh_token_encrypted = CASE
-                        WHEN :new_token IS NOT NULL
+                        WHEN CAST(:new_token AS TEXT) IS NOT NULL
                         THEN EXCLUDED.refresh_token_encrypted
                         ELSE oauth_accounts.refresh_token_encrypted
                     END,

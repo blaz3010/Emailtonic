@@ -1,9 +1,10 @@
+import asyncio
 
 from argon2 import PasswordHasher
 from argon2.exceptions import (
-    VerifyMismatchError,
-    VerificationError,
     InvalidHashError,
+    VerificationError,
+    VerifyMismatchError,
 )
 
 password_hasher = PasswordHasher(
@@ -14,16 +15,21 @@ password_hasher = PasswordHasher(
     salt_len=16,
 )
 
+# Verified against when the user doesn't exist, so a login attempt takes
+# about the same time whether or not the account is real.
+DUMMY_HASH = password_hasher.hash("not-a-real-password")
 
-def hash_password(password: str) -> str:
-    return password_hasher.hash(password)
+
+async def hash_password(password: str) -> str:
+    # Argon2 is deliberately slow and memory-heavy, so run it in a worker
+    # thread instead of blocking FastAPI's event loop.
+    return await asyncio.to_thread(password_hasher.hash, password)
 
 
-def verify_password(
-    stored_hash: str,
-    password: str,
-) -> bool:
-    try:
-        return password_hasher.verify(stored_hash, password)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
-        return False
+async def verify_password(password: str, stored_hash: str) -> bool:
+    def _verify() -> bool:
+        try:
+            return password_hasher.verify(stored_hash, password)
+        except (VerifyMismatchError, VerificationError, InvalidHashError):
+            return False
+    return await asyncio.to_thread(_verify)

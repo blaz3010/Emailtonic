@@ -74,7 +74,7 @@ async def _issue_tokens(response: Response, user_id: str) -> str:
 
     expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_TTL_DAYS)
     stored = await set_session_refresh(
-        UUID(user_id), hash_refresh_token(refresh_token), expires_at
+        UUID(user_id), await hash_refresh_token(refresh_token), expires_at
     )
     if not stored:
         raise HTTPException(status_code=500, detail="Could not persist refresh token")
@@ -181,9 +181,7 @@ async def login_user(
             user = await get_user_by_email(username.lower())
 
         # always run a bcrypt check so timing doesn't reveal whether the user exists
-        password_valid = await verify_password(
-            password, user["password_hash"] if user else hash_password
-        )
+        password_valid = await verify_password(password, user["password_hash"]) if user else False
         if not user or not password_valid:
             logger.warning("Login failed")
             raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -213,7 +211,7 @@ async def refresh_access_token(
         if not refresh_token:
             raise HTTPException(status_code=401, detail="No refresh token provided")
 
-        user = await get_user_by_session_hash(hash_refresh_token(refresh_token))
+        user = await get_user_by_session_hash(await hash_refresh_token(refresh_token))
         expires_at = user.get("session_expires_at") if user else None
         if expires_at is not None and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -237,7 +235,7 @@ async def logout_user(
 ):
     try:
         if refresh_token:
-            user = await get_user_by_session_hash(hash_refresh_token(refresh_token))
+            user = await get_user_by_session_hash(await hash_refresh_token(refresh_token))
             if user:
                 await clear_session_refresh(user["id"])
         response.delete_cookie("refresh_token", path="/")

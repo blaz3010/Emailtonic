@@ -39,7 +39,7 @@ origins = list({
     frontend_url,
     "http://localhost:3000",
     "http://localhost:3001",
-    "http://localhost",
+    "http://localhost","http://localhost:5173",
 })
 
 # allow_credentials is required so the browser sends/receives the

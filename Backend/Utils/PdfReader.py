@@ -40,15 +40,30 @@ def _convert_pdf_sync_fitz(file_bytes: bytes):
     return "\n".join(pages_text)
 
 
-async def read_text_from_pdf(file):
-    filename = getattr(file, "filename", "document.pdf")
+async def read_text_from_pdf(
+    pdf_bytes: bytes,
+    filename: str = "document.pdf",
+) -> str:
     print(f"Reading PDF file: {filename}")
-    pdf_bytes = await file.read()
+
     stream = BytesIO(pdf_bytes)
-    
-    markdown = await asyncio.to_thread(_convert_pdf_sync, stream, filename)
-    if markdown is None:
-        print(f"Converter failed for {filename}, falling back to PyMuPDF (fitz)")
-        markdown = await asyncio.to_thread(_convert_pdf_sync_fitz, pdf_bytes)
-        
-    return markdown
+
+    try:
+        markdown = await asyncio.to_thread(
+            _convert_pdf_sync,
+            stream,
+            filename,
+        )
+
+        if markdown:
+            return markdown
+
+        print(f"Converter returned empty text for {filename}")
+
+    except Exception as exc:
+        print(f"Primary PDF conversion failed: {exc}")
+
+    return await asyncio.to_thread(
+        _convert_pdf_sync_fitz,
+        pdf_bytes,
+    )

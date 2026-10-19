@@ -17,7 +17,7 @@ async def create_user(
     email: str,
     password_hash: str,
     refresh_token: Optional[str] = None,
-    expiry_at: Optional[datetime] = None,
+    expiry_at=None,
 ) -> Optional[dict]:
     async with AsyncDB() as s:
         result = await s.execute(
@@ -25,16 +25,12 @@ async def create_user(
                 INSERT INTO users (
                     username,
                     email,
-                    password_hash,
-                    refresh_token,
-                    expiry_at
+                    password_hash
                 )
                 VALUES (
                     :username,
                     :email,
-                    :password_hash,
-                    :refresh_token,
-                    :expiry_at
+                    :password_hash
                 )
                 ON CONFLICT (email) DO NOTHING
                 RETURNING id, username, email, created_at
@@ -43,14 +39,13 @@ async def create_user(
                 "username": username,
                 "email": email,
                 "password_hash": password_hash,
-                "refresh_token": refresh_token,
-                "expiry_at": expiry_at,
             },
         )
-        await s.commit()
-        row = result.mappings().first()
-        return dict(row) if row else None
 
+        row = result.mappings().first()
+        await s.commit()
+
+        return dict(row) if row else None
 
 async def get_user_by_id(user_id: UUID) -> Optional[dict]:
     async with AsyncDB() as s:

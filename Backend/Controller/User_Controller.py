@@ -1,6 +1,7 @@
 import io
 import os
 import logging
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
@@ -21,8 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from Backend.Auth.auth import (
     REFRESH_TOKEN_TTL_DAYS,
     create_access_token,
-    create_refresh_token,
-    hash_token,
+    create_refresh_token
 )
 from Backend.DBhelper.User_db import (
     clear_session_refresh,
@@ -43,7 +43,7 @@ from Backend.DBhelper.User_profiles import (
 )
 from Backend.Middleware.auth_middleware import auth_middleware
 from Backend.Utils.Cloudinary import upload_resume
-from Backend.Utils.Hash import DUMMY_HASH, hash_password, verify_password
+from Backend.Utils.Hash import hash_password, verify_password
 from Backend.Utils.PdfReader import read_text_from_pdf
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ async def _issue_tokens(response: Response, user_id: str) -> str:
 
     expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_TTL_DAYS)
     stored = await set_session_refresh(
-        UUID(user_id), hash_token(refresh_token), expires_at
+        UUID(user_id), hash_refresh_token(refresh_token), expires_at
     )
     if not stored:
         raise HTTPException(status_code=500, detail="Could not persist refresh token")
@@ -82,6 +82,8 @@ async def _issue_tokens(response: Response, user_id: str) -> str:
     _set_refresh_cookie(response, refresh_token)
     return access_token
 
+async def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 def _public_user(user: dict) -> dict:
     """Allow-list: never leak password hash or token columns."""
@@ -180,7 +182,7 @@ async def login_user(
 
         # always run a bcrypt check so timing doesn't reveal whether the user exists
         password_valid = await verify_password(
-            password, user["password_hash"] if user else DUMMY_HASH
+            password, user["password_hash"] if user else hash_password
         )
         if not user or not password_valid:
             logger.warning("Login failed")
@@ -211,7 +213,7 @@ async def refresh_access_token(
         if not refresh_token:
             raise HTTPException(status_code=401, detail="No refresh token provided")
 
-        user = await get_user_by_session_hash(hash_token(refresh_token))
+        user = await get_user_by_session_hash(hash_refresh_token(refresh_token))
         expires_at = user.get("session_expires_at") if user else None
         if expires_at is not None and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -235,7 +237,7 @@ async def logout_user(
 ):
     try:
         if refresh_token:
-            user = await get_user_by_session_hash(hash_token(refresh_token))
+            user = await get_user_by_session_hash(hash_refresh_token(refresh_token))
             if user:
                 await clear_session_refresh(user["id"])
         response.delete_cookie("refresh_token", path="/")

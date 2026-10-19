@@ -178,3 +178,72 @@ async def delete_user(user_id: UUID) -> int:
         )
         await s.commit()
         return result.rowcount
+
+async def get_user_by_username(username: str) -> Optional[dict]:
+    async with AsyncDB() as s:
+        result = await s.execute(
+            text("""
+                SELECT *
+                FROM users
+                WHERE username = :username
+            """),
+            {"username": username},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
+
+async def set_session_refresh(
+    user_id: UUID,
+    refresh_token_hash: str,
+    expires_at: datetime,
+) -> bool:
+    async with AsyncDB() as s:
+        result = await s.execute(
+            text("""
+                UPDATE users
+                SET session_refresh_hash = :token_hash,
+                    session_expires_at = :expires_at,
+                    updated_at = NOW()
+                WHERE id = :id
+            """),
+            {
+                "id": str(user_id),
+                "token_hash": refresh_token_hash,
+                "expires_at": expires_at,
+            },
+        )
+        await s.commit()
+        return result.rowcount > 0
+
+
+async def get_user_by_session_hash(
+    refresh_token_hash: str,
+) -> Optional[dict]:
+    async with AsyncDB() as s:
+        result = await s.execute(
+            text("""
+                SELECT *
+                FROM users
+                WHERE session_refresh_hash = :token_hash
+            """),
+            {"token_hash": refresh_token_hash},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
+
+async def clear_session_refresh(user_id: UUID) -> int:
+    async with AsyncDB() as s:
+        result = await s.execute(
+            text("""
+                UPDATE users
+                SET session_refresh_hash = NULL,
+                    session_expires_at = NULL,
+                    updated_at = NOW()
+                WHERE id = :id
+            """),
+            {"id": str(user_id)},
+        )
+        await s.commit()
+        return result.rowcount

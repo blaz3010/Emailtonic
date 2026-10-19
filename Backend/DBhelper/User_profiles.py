@@ -3,7 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import text
-from DBhelper.db import AsyncDB
+from Backend.DBhelper.db import     AsyncDB
 
 
 async def create_user_profile(

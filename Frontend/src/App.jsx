@@ -146,6 +146,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
 .field label { font-weight: 500; font-size: 14px; }
 .field .hint { color: var(--ink-soft); font-size: 13px; }
+.hint { color: var(--ink-soft); font-size: 13px; }
 .input, .textarea {
   width: 100%;
   background: var(--surface);
@@ -231,6 +232,16 @@ button, input, textarea { font: inherit; color: inherit; }
 .letter-head dd { margin: 0; word-break: break-word; }
 .letter-head dd.subject { font-weight: 600; }
 .letter-body { padding: 22px 24px 28px; white-space: pre-wrap; line-height: 1.65; }
+.letter-input {
+  width: 100%; border: 0; background: transparent; padding: 2px 4px; margin: -2px -4px;
+  font: inherit; font-weight: 600; border-radius: 3px;
+}
+.letter-input:focus { outline: none; background: var(--purple-wash); }
+.letter-textarea {
+  display: block; width: 100%; min-height: 300px; border: 0; background: transparent;
+  padding: 22px 24px 28px; line-height: 1.65; resize: vertical;
+}
+.letter-textarea:focus { outline: none; background: #faf8ff; }
 .letter-empty { padding: 56px 32px; color: var(--ink-soft); max-width: 36ch; }
 .letter-empty strong { display: block; color: var(--ink); font-family: var(--head); font-size: 18px; margin-bottom: 6px; font-weight: 600; }
 
@@ -245,6 +256,7 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .file-box .name { color: var(--ink-soft); font-size: 14px; word-break: break-all; }
 .file-box a { color: var(--purple); font-weight: 500; }
+.link-sm { color: var(--purple); font-size: 13px; }
 
 .acct {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -399,28 +411,32 @@ function AuthScreen({ onAuthed }) {
 /* ------------------------------------------------------------------ */
 
 const MAX_JD = 10000;
+const MAX_REF = 500;
 
 function WriteView({ profile, accounts, goto, toast }) {
   const [jd, setJd] = useState("");
   const [to, setTo] = useState("");
-  const [draft, setDraft] = useState(null); // {status,to,subject,body,from?}
-  const [busy, setBusy] = useState(null); // "preview" | "send"
+  const [ref, setRef] = useState(""); // application focus
+  const [draft, setDraft] = useState(null); // {id,status,to,subject,body,from?}
+  const [busy, setBusy] = useState(null); // "draft" | "send"
   const [error, setError] = useState("");
 
-  const hasResume = !!profile?.resume_link;
+  // The backend needs both the extracted resume text and the link
+  const hasResume = !!(profile?.resume_link && profile?.resume_text);
   const hasGoogle = accounts.length > 0;
+  const ready = jd.trim().length > 0 && jd.length <= MAX_JD;
+  const isDraft = draft?.status === "draft";
+  const recipient = to.trim() || draft?.to || "";
 
-  async function run(preview) {
-    setBusy(preview ? "preview" : "send");
+  async function generate() {
+    setBusy("draft");
     setError("");
     try {
       const form = new FormData();
       form.append("job_description", jd);
       if (to.trim()) form.append("to", to.trim());
-      form.append("preview", preview ? "true" : "false");
-      const data = await api("/send_email", { method: "POST", form });
-      setDraft(data);
-      if (!preview) toast(`Sent to ${data.to}`);
+      if (ref.trim()) form.append("custom_reference", ref.trim());
+      setDraft(await api("/send_email/draft", { method: "POST", form }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -428,7 +444,25 @@ function WriteView({ profile, accounts, goto, toast }) {
     }
   }
 
-  const ready = jd.trim().length > 0 && jd.length <= MAX_JD;
+  async function approve() {
+    setBusy("send");
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("to", recipient);
+      form.append("subject", draft.subject);
+      form.append("body", draft.body);
+      const data = await api(`/send_email/${draft.id}/send`, { method: "POST", form });
+      setDraft(data);
+      toast(`Sent to ${data.to}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const editDraft = (k) => (e) => setDraft({ ...draft, [k]: e.target.value });
 
   return (
     <>
@@ -439,13 +473,13 @@ function WriteView({ profile, accounts, goto, toast }) {
 
       {!hasResume && (
         <div className="notice">
-          <span>Add your resume to your profile before generating emails.</span>
+          <span>Add your resume PDF and resume link to your profile before generating emails.</span>
           <button className="btn" onClick={() => goto("profile")}>Open profile</button>
         </div>
       )}
       {hasResume && !hasGoogle && (
         <div className="notice">
-          <span>You can preview drafts now. Connect Gmail to send them.</span>
+          <span>You can generate drafts now. Connect Gmail to send them.</span>
           <button className="btn" onClick={() => goto("accounts")}>Connect Gmail</button>
         </div>
       )}
@@ -464,43 +498,80 @@ function WriteView({ profile, accounts, goto, toast }) {
             <span className="hint">Optional. Overrides any address found in the posting.</span>
           </div>
 
+          <div className="field">
+            <label htmlFor="ref">Application focus</label>
+            <input
+              id="ref"
+              className="input"
+              value={ref}
+              maxLength={MAX_REF}
+              onChange={(e) => setRef(e.target.value)}
+              placeholder="Backend developer, fresher"
+            />
+            <span className="hint">
+              Optional. Tells the email who you're applying as, even if the posting asks for more experience.
+            </span>
+          </div>
+
           <div className="row">
-            <button className="btn" disabled={!ready || !hasResume || !!busy} onClick={() => run(true)}>
-              {busy === "preview" ? "Drafting..." : "Preview draft"}
-            </button>
-            <button className="btn primary" disabled={!ready || !hasResume || !hasGoogle || !!busy} onClick={() => run(false)}>
-              {busy === "send" ? "Sending..." : "Write and send"}
+            <button className="btn primary" disabled={!ready || !hasResume || !!busy || ref.length > MAX_REF} onClick={generate}>
+              {busy === "draft" ? "Drafting..." : draft ? "Regenerate draft" : "Generate draft"}
             </button>
             <span className="counter" style={jd.length > MAX_JD ? { color: "var(--danger)" } : null}>
               {jd.length.toLocaleString()} / {MAX_JD.toLocaleString()}
             </span>
           </div>
-          <p className="hint" style={{ marginTop: 10, color: "var(--ink-soft)", fontSize: 13 }}>
-            Sending writes a fresh email, so it may differ slightly from the preview.
-          </p>
         </section>
 
         <section aria-live="polite">
           {draft ? (
-            <article className="letter">
-              <div className="letter-head">
-                <dl>
-                  {draft.from && (<><dt>From</dt><dd>{draft.from}</dd></>)}
-                  <dt>To</dt>
-                  <dd>{draft.to || <em style={{ color: "var(--danger)" }}>No address found. Enter one on the left.</em>}</dd>
-                  <dt>Subject</dt>
-                  <dd className="subject">{draft.subject}</dd>
-                </dl>
-              </div>
-              <div className="letter-body">
-                {draft.body || (draft.status === "sent" ? "This email has been sent." : "")}
-              </div>
-            </article>
+            <>
+              <article className="letter">
+                <div className="letter-head">
+                  <dl>
+                    {draft.from && (<><dt>From</dt><dd>{draft.from}</dd></>)}
+                    <dt>To</dt>
+                    <dd>
+                      {recipient || <em style={{ color: "var(--danger)" }}>No address found. Enter one on the left.</em>}
+                    </dd>
+                    <dt>Subject</dt>
+                    <dd className="subject">
+                      {isDraft ? (
+                        <input className="letter-input" value={draft.subject} onChange={editDraft("subject")} aria-label="Subject" />
+                      ) : (
+                        draft.subject
+                      )}
+                    </dd>
+                  </dl>
+                </div>
+                {isDraft ? (
+                  <textarea className="letter-textarea" value={draft.body} onChange={editDraft("body")} aria-label="Email body" />
+                ) : (
+                  <div className="letter-body">{draft.body}</div>
+                )}
+              </article>
+
+              {isDraft && (
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button
+                    className="btn primary"
+                    disabled={!hasGoogle || !!busy || !recipient || !draft.subject.trim() || !draft.body.trim()}
+                    onClick={approve}
+                  >
+                    {busy === "send" ? "Sending..." : "Approve and send"}
+                  </button>
+                  {!hasGoogle && <span className="hint">Connect Gmail to send.</span>}
+                </div>
+              )}
+              {draft.status === "sent" && (
+                <p className="hint" style={{ marginTop: 16, color: "var(--ok)" }}>Sent.</p>
+              )}
+            </>
           ) : (
             <div className="letter">
               <div className="letter-empty">
                 <strong>Your draft will show up here</strong>
-                Preview an email to check the subject, recipient and tone before anything is sent.
+                Generate an email, edit it if you like, then approve it to send exactly what you see.
               </div>
             </div>
           )}
@@ -559,37 +630,43 @@ function ProfileView({ profile, onSaved, toast }) {
         {error && <div className="notice err" role="alert">{error}</div>}
 
         <div className="field">
-          <label>Resume</label>
+          <label>Resume PDF</label>
           <div className="file-box">
             <input ref={fileRef} id="resume" type="file" accept="application/pdf" hidden onChange={(e) => setFile(e.target.files?.[0] || null)} />
             <button type="button" className="btn" onClick={() => fileRef.current?.click()}>
-              {profile?.resume_link ? "Replace PDF" : "Choose PDF"}
+              {profile?.resume_text ? "Replace PDF" : "Choose PDF"}
             </button>
             <span className="name">
-              {file ? file.name : profile?.resume_link ? (<>Current resume on file. <a href={profile.resume_link} target="_blank" rel="noreferrer">View</a></>) : "No file chosen"}
+              {file ? file.name : profile?.resume_text ? "Resume text on file." : "No file chosen"}
             </span>
           </div>
-          <span className="hint">PDF only, up to 5 MB, with selectable text.</span>
+          <span className="hint">PDF only, up to 5 MB, with selectable text. Used to write your emails.</span>
         </div>
 
-        <div className="field">
-          <label htmlFor="gh">GitHub</label>
-          <input id="gh" className="input" value={links.github_link} onChange={set("github_link")} placeholder="https://github.com/you" />
-        </div>
         <div className="field">
           <label htmlFor="rl">Resume link</label>
           <input
             id="rl"
             type="url"
             className="input"
-    value={links.resume_link}
-    onChange={set("resume_link")}
-    placeholder="https://drive.google.com/file/d/.../view"
-  />
-  <span className="hint">
-    Paste a Google Drive link. Set sharing to "Anyone with the link can view".
-  </span>
-</div>
+            value={links.resume_link}
+            onChange={set("resume_link")}
+            placeholder="https://drive.google.com/file/d/.../view"
+          />
+          <span className="hint">
+            Paste a Google Drive link. Set sharing to "Anyone with the link can view". Recipients see this link in your email.
+          </span>
+          {profile?.resume_link && (
+            <a className="link-sm" href={profile.resume_link} target="_blank" rel="noreferrer">
+              Open saved link
+            </a>
+          )}
+        </div>
+
+        <div className="field">
+          <label htmlFor="gh">GitHub</label>
+          <input id="gh" className="input" value={links.github_link} onChange={set("github_link")} placeholder="https://github.com/you" />
+        </div>
         <div className="field">
           <label htmlFor="lc">LeetCode</label>
           <input id="lc" className="input" value={links.leetcode_link} onChange={set("leetcode_link")} placeholder="https://leetcode.com/u/you" />

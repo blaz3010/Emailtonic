@@ -519,6 +519,7 @@ function ProfileView({ profile, onSaved, toast }) {
     github_link: profile?.github_link || "",
     leetcode_link: profile?.leetcode_link || "",
     website_link: profile?.website_link || "",
+    resume_link: profile?.resume_link || "",
   });
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -575,6 +576,20 @@ function ProfileView({ profile, onSaved, toast }) {
           <label htmlFor="gh">GitHub</label>
           <input id="gh" className="input" value={links.github_link} onChange={set("github_link")} placeholder="https://github.com/you" />
         </div>
+        <div className="field">
+          <label htmlFor="rl">Resume link</label>
+          <input
+            id="rl"
+            type="url"
+            className="input"
+    value={links.resume_link}
+    onChange={set("resume_link")}
+    placeholder="https://drive.google.com/file/d/.../view"
+  />
+  <span className="hint">
+    Paste a Google Drive link. Set sharing to "Anyone with the link can view".
+  </span>
+</div>
         <div className="field">
           <label htmlFor="lc">LeetCode</label>
           <input id="lc" className="input" value={links.leetcode_link} onChange={set("leetcode_link")} placeholder="https://leetcode.com/u/you" />

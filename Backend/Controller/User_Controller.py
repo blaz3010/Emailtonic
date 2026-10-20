@@ -338,12 +338,6 @@ async def _read_resume(resume: UploadFile) -> tuple[bytes, str]:
     return data, text
 
 
-async def _upload(uid: UUID, data: bytes) -> str:
-    try:
-        return await upload_resume(io.BytesIO(data), f"{uid}.pdf")
-    except Exception:
-        logger.exception("Resume upload failed for user_id=%s", uid)
-        raise HTTPException(status_code=502, detail="Resume upload failed")
 
 
 async def get_profile(user_id: str = Depends(auth_middleware)):
@@ -365,21 +359,21 @@ async def create_profile(
     leetcode_link: Optional[str] = Form(None),
     github_link: Optional[str] = Form(None),
     website_link: Optional[str] = Form(None),
+    resume_link: Optional[str] = Form(None),
 ):
     try:
         uid = _uid(user_id)
         if await get_user_profile(uid):
             raise HTTPException(status_code=409, detail="Profile already exists; use PUT")
 
-        resume_link = resume_text = None
+        resume_text = None  # don't clobber the resume_link form value
         if resume is not None and resume.filename:
             data, resume_text = await _read_resume(resume)
-            resume_link = await _upload(uid, data)
 
         try:
             profile = await create_user_profile(
                 user_id=uid,
-                resume_link=resume_link,
+                resume_link=_clean(resume_link),
                 resume_text=resume_text,
                 leetcode_link=_clean(leetcode_link),
                 github_link=_clean(github_link),
@@ -401,6 +395,7 @@ async def update_profile(
     leetcode_link: Optional[str] = Form(None),
     github_link: Optional[str] = Form(None),
     website_link: Optional[str] = Form(None),
+    resume_link: Optional[str] = Form(None),
 ):
     try:
         uid = _uid(user_id)
@@ -408,13 +403,13 @@ async def update_profile(
             raise HTTPException(status_code=404, detail="Profile not found; use POST")
 
         fields = {
+            "resume_link": _clean(resume_link),   # added
             "leetcode_link": _clean(leetcode_link),
             "github_link": _clean(github_link),
             "website_link": _clean(website_link),
         }
         if resume is not None and resume.filename:
             data, fields["resume_text"] = await _read_resume(resume)
-            fields["resume_link"] = await _upload(uid, data)
 
         if not any(v is not None for v in fields.values()):
             raise HTTPException(status_code=400, detail="Nothing to update")

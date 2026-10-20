@@ -166,13 +166,11 @@ Expected output format:
 }}"""
 
 def _parse_llm_json(raw: str) -> dict:
-    """Strip <think> blocks / code fences and parse the JSON object."""
     text = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.DOTALL).strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
         raise ValueError("Model did not return a JSON object")
-    # strict=False tolerates real newlines inside string values
     data = json.loads(text[start : end + 1], strict=False)
     data = {str(k).lower(): v for k, v in data.items()}
     return {

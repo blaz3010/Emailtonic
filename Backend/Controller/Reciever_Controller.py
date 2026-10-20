@@ -64,9 +64,7 @@ def _extracted_recipient(candidate: str, job_description: str) -> Optional[str]:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Step 1: generate and save a draft (the only place the LLM is called)
-# ---------------------------------------------------------------------------
+
 async def create_email_draft(
     user_id: str = Depends(auth_middleware),
     job_description: str = Form(...),
@@ -140,9 +138,7 @@ async def create_email_draft(
         raise HTTPException(status_code=500, detail="An internal error occurred")
 
 
-# ---------------------------------------------------------------------------
-# Step 2: approve and send the stored draft (no LLM call)
-# ---------------------------------------------------------------------------
+
 async def send_email_draft(
     draft_id: UUID,
     user_id: str = Depends(auth_middleware),
@@ -152,7 +148,6 @@ async def send_email_draft(
 ):
     try:
         uid = _uid(user_id)
-
         row = await get_draft(uid, draft_id)
         if not row:
             raise HTTPException(status_code=404, detail="Draft not found")
@@ -166,10 +161,8 @@ async def send_email_draft(
                 raise HTTPException(status_code=422, detail="Recipient email is invalid")
         if not recipient:
             raise HTTPException(status_code=422, detail="No recipient found; pass the 'to' field")
-
         final_subject = _single_line(subject) if subject and subject.strip() else row["subject"]
         final_body = body.strip() if body and body.strip() else row["body"]
-
         account = await get_active_oauth_account(uid, "google")
         if not account:
             raise HTTPException(status_code=409, detail="Connect your Google account first")
@@ -178,8 +171,6 @@ async def send_email_draft(
                 status_code=429,
                 detail=f"Daily limit of {DAILY_SEND_LIMIT} emails reached",
             )
-
-        # Atomic draft -> sending, so a double-click can't send twice
         claimed = await claim_draft(uid, draft_id, account["id"], recipient, final_subject, final_body)
         if not claimed:
             raise HTTPException(status_code=409, detail="This email is already being sent")
@@ -224,9 +215,7 @@ async def send_email_draft(
         raise HTTPException(status_code=500, detail="An internal error occurred")
 
 
-# ---------------------------------------------------------------------------
-# The "log table" view
-# ---------------------------------------------------------------------------
+
 async def email_history(
     user_id: str = Depends(auth_middleware),
     status: Optional[str] = Query(None, pattern="^(draft|sending|sent|failed)$"),

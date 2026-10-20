@@ -280,7 +280,6 @@ async def change_password(
             raise HTTPException(status_code=400, detail="New password must be different")
 
         await update_user_password(uid, await hash_password(new_password))
-        # revoke the refresh token: every device has to log in again
         await clear_session_refresh(uid)
         response.delete_cookie("refresh_token", path="/")
         return {"message": "Password updated. Please log in again."}
@@ -304,8 +303,7 @@ async def delete_account(
 
         if not await verify_password(password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Password is incorrect")
-
-        await delete_user_profile(uid)  # harmless if none exists / FK cascades
+        await delete_user_profile(uid)
         await delete_user(uid)
         response.delete_cookie("refresh_token", path="/")
         return {"message": "Account deleted"}
@@ -337,9 +335,6 @@ async def _read_resume(resume: UploadFile) -> tuple[bytes, str]:
         )
     return data, text
 
-
-
-
 async def get_profile(user_id: str = Depends(auth_middleware)):
     try:
         profile = await get_user_profile(_uid(user_id))
@@ -365,8 +360,7 @@ async def create_profile(
         uid = _uid(user_id)
         if await get_user_profile(uid):
             raise HTTPException(status_code=409, detail="Profile already exists; use PUT")
-
-        resume_text = None  # don't clobber the resume_link form value
+        resume_text = None
         if resume is not None and resume.filename:
             data, resume_text = await _read_resume(resume)
 
@@ -403,14 +397,13 @@ async def update_profile(
             raise HTTPException(status_code=404, detail="Profile not found; use POST")
 
         fields = {
-            "resume_link": _clean(resume_link),   # added
+            "resume_link": _clean(resume_link),
             "leetcode_link": _clean(leetcode_link),
             "github_link": _clean(github_link),
             "website_link": _clean(website_link),
         }
         if resume is not None and resume.filename:
             data, fields["resume_text"] = await _read_resume(resume)
-
         if not any(v is not None for v in fields.values()):
             raise HTTPException(status_code=400, detail="Nothing to update")
 

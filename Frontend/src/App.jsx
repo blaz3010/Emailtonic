@@ -97,7 +97,10 @@ const css = `
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+/* The app is light-only. Pin it so the Vite template's OS dark-mode
+   variables (index.css) can't turn the page dark behind dark ink text. */
+:root { color-scheme: light; background: var(--paper); color: var(--ink); }
+html, body { height: 100%; background: var(--paper); }
 #root {
   width: 100%;
   max-width: none;
@@ -119,7 +122,7 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
-h1, h2, h3 { font-family: var(--head); font-weight: 600; margin: 0; letter-spacing: -0.015em; }
+h1, h2, h3 { font-family: var(--head); font-weight: 600; margin: 0; letter-spacing: -0.015em; color: var(--ink); }
 p { margin: 0; }
 button, input, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
@@ -271,6 +274,32 @@ button, input, textarea { font: inherit; color: inherit; }
   font-size: 14px; z-index: 10;
 }
 .toast.err { background: var(--danger); }
+
+/* history */
+.stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+.stat {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 2px 10px 2px 2px;
+  box-shadow: 4px 4px 0 var(--purple-wash); padding: 16px 22px; min-width: 160px;
+}
+.stat .num { font-family: var(--head); font-weight: 700; font-size: 34px; color: var(--purple); line-height: 1.1; }
+.stat .lbl { color: var(--ink-soft); font-size: 13px; margin-top: 2px; }
+
+.hist { border-top: 1px solid var(--line); }
+.hist-item { border-bottom: 1px solid var(--line); }
+.hist-row { display: flex; align-items: center; gap: 16px; padding: 14px 4px; }
+.hist-main { flex: 1; min-width: 0; }
+.hist-subject { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist-meta { color: var(--ink-soft); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill {
+  font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--line-strong); color: var(--ink-soft); background: var(--surface); flex-shrink: 0;
+}
+.pill.sent { color: var(--ok); border-color: var(--ok); }
+.pill.failed { color: var(--danger); border-color: var(--danger); }
+.pill.draft { color: var(--purple); border-color: var(--purple); background: var(--purple-wash); }
+.hist-open { padding: 0 4px 20px; }
+.hist-err { color: var(--danger); font-size: 13px; margin-bottom: 10px; }
+.hist-empty { padding: 40px 4px; color: var(--ink-soft); }
 
 .boot { height: 100%; display: grid; place-items: center; color: var(--ink-soft); }
 
@@ -746,6 +775,128 @@ function AccountsView({ accounts, reload, toast }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  History view                                                       */
+/* ------------------------------------------------------------------ */
+
+const HISTORY_LIMIT = 200;
+
+function formatWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
+function HistoryView({ goto }) {
+  const [emails, setEmails] = useState(null); // null = loading
+  const [error, setError] = useState("");
+  const [openId, setOpenId] = useState(null);
+
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const data = await api(`/send_email/history?limit=${HISTORY_LIMIT}`);
+      setEmails(data.emails || []);
+    } catch (err) {
+      setError(err.message);
+      setEmails([]);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const list = emails || [];
+  const sentCount = list.filter((m) => m.status === "sent").length;
+  const draftCount = list.filter((m) => m.status === "draft").length;
+  const capped = list.length >= HISTORY_LIMIT;
+
+  return (
+    <>
+      <div className="page-head">
+        <h2>Sent emails</h2>
+        <p>Every email you've drafted or sent. Press Show to read one in full.</p>
+      </div>
+
+      {error && (
+        <div className="notice err" role="alert">
+          <span>{error}</span>
+          <button className="btn" onClick={load}>Retry</button>
+        </div>
+      )}
+
+      <div className="stats">
+        <div className="stat">
+          <div className="num">{emails === null ? "..." : `${sentCount}${capped ? "+" : ""}`}</div>
+          <div className="lbl">Total emails sent</div>
+        </div>
+        <div className="stat">
+          <div className="num">{emails === null ? "..." : draftCount}</div>
+          <div className="lbl">Unsent drafts</div>
+        </div>
+      </div>
+
+      {emails === null ? (
+        <p className="hint">Loading...</p>
+      ) : list.length === 0 && !error ? (
+        <div className="hist-empty">
+          Nothing here yet.{" "}
+          <button className="btn quiet" onClick={() => goto("write")}>Write your first email</button>
+        </div>
+      ) : (
+        <div className="hist" role="list">
+          {list.map((m) => {
+            const open = openId === m.id;
+            const when = formatWhen(m.sent_at || m.created_at);
+            return (
+              <div className="hist-item" role="listitem" key={m.id}>
+                <div className="hist-row">
+                  <div className="hist-main">
+                    <div className="hist-subject">{m.subject || "(no subject)"}</div>
+                    <div className="hist-meta">
+                      {m.to_email ? `To ${m.to_email}` : "No recipient"}
+                      {when && ` · ${when}`}
+                    </div>
+                  </div>
+                  <span className={`pill ${m.status}`}>{m.status}</span>
+                  <button
+                    className="btn"
+                    aria-expanded={open}
+                    onClick={() => setOpenId(open ? null : m.id)}
+                  >
+                    {open ? "Hide" : "Show"}
+                  </button>
+                </div>
+
+                {open && (
+                  <div className="hist-open">
+                    {m.error && <p className="hist-err">Last error: {m.error}</p>}
+                    <article className="letter" style={{ minHeight: 0 }}>
+                      <div className="letter-head">
+                        <dl>
+                          <dt>To</dt>
+                          <dd>{m.to_email || "-"}</dd>
+                          <dt>Subject</dt>
+                          <dd className="subject">{m.subject || "(no subject)"}</dd>
+                          <dt>{m.status === "sent" ? "Sent" : "Created"}</dt>
+                          <dd>{when || "-"}</dd>
+                        </dl>
+                      </div>
+                      <div className="letter-body">{m.body}</div>
+                    </article>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Shell                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -781,6 +932,7 @@ function Shell({ user, profile, reloadMe, onLogout }) {
 
   const tabs = [
     ["write", "Write"],
+    ["history", "Sent emails"],
     ["profile", "Profile"],
     ["accounts", "Gmail"],
   ];
@@ -805,6 +957,7 @@ function Shell({ user, profile, reloadMe, onLogout }) {
 
       <main className="main">
         {view === "write" && <WriteView profile={profile} accounts={accounts} goto={setView} toast={toast} />}
+        {view === "history" && <HistoryView goto={setView} />}
         {view === "profile" && <ProfileView profile={profile} onSaved={reloadMe} toast={toast} />}
         {view === "accounts" && <AccountsView accounts={accounts} reload={loadAccounts} toast={toast} />}
       </main>
